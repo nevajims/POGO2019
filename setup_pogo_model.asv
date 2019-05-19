@@ -1,3 +1,150 @@
+
+function POGO_model =   setup_pogo_model(SAFE_SOLUTION , MODE_NO, MODEL_LENGTH,  chosen_freq,  nCyc)
+
+%  for a specific SAFE solution ::
+%  Use the SAFE mesh and extrude it
+%  Use the modal solution to the SAFE model 
+%  select a mode number /  frequency /  number of cycles  and create an  excitation on the end nodes
+%  Input the other input parameters for the solutins::     
+%  choose the format of the solutions blocks (needs to be limited)
+
+
+
+
+% TO DO-------------------------------
+% Setup 
+% automatically create a NOTES file
+% save to the NAS directory  
+% put in a user defined name rather than  'model'-     use the SAFE model name plus the mode and frequency
+% plus    
+%
+% TO DO-------------------------------
+
+
+% make the save directory an input parameter
+% MODE_NO = 4 ;  %   mode 4 is longitudinal in safe model
+% load('rpd_8.mat')
+% chosen_freq = 100e3   in Hz
+% number of cycles in toneburst
+% nCyc = 6                      ;
+% put the 3 material properties in here 2
+
+%-------------------------------------------------------------------------------------
+% MESH -----------------------------------------------------
+%-------------------------------------------------------------------------------------
+SAFE_MESH = SAFE_SOLUTION.mesh;
+mesh_details = get_element_details(SAFE_MESH);
+dx = mesh_details.mean_edge_length;
+dz = dx ;
+nz = ceil(MODEL_LENGTH/dx);    %make it a 1m length
+POGO_model = convert_SAFE_POGO(SAFE_MESH , dz , nz , 1 );
+%-------------------------------------------------------------------------------------
+% MESH -------------------------------------------------------------------------------
+%-------------------------------------------------------------------------------------
+
+%-------------------------------------------------------------------------------------
+%  Input the other input parameters for the solutins ---------------------------------     
+%-------------------------------------------------------------------------------------
+whichFrame = 1;
+whichSig = 1;   % 0 for force 1 for displ
+% courant = 0.3; % mix of sizes so be conservative with stability   
+CFL = 0.3;     %courant
+
+% COPPER PROPERTIES
+E   =        117e9        ;       % youngs_modulus 
+nu  =        0.35         ;       % poissons_ratio
+rho =        8960         ;       % density
+G   =        E/(2*(1+nu)) ;       % Shear Modulus  
+
+%sound speeds
+c0  = sqrt(E*(1-nu)/(rho*(1+nu)*(1-2*nu))) ; % m/s
+disp(num2str(c0))
+
+cSh = sqrt(E/(2*rho*(1+nu)))               ; % m/s   
+
+POGO_model.dt = (dx/c0) * CFL                 ;
+POGO_model.nt = round(6.6667e-4/POGO_model.dt);
+% define material properties
+% STEEL PROPERTIES - NOT USED
+% E = 210e9;
+% G = 80e9;
+% nu = E/2/G-1;
+% rho = 8000;
+
+
+%  time to go 2m     2/3000          6.667 -4
+% want 30e-6 s long simulation
+% length of signal  6 cycles at 100,000 kHz     =   6.0000e-05  s
+%  assume its for a 1 m long rod
+%  define frequency
+
+%get number of elements
+%define the material references (set them all to material 1)
+POGO_model.matTypeRefs = ones(nEls,1);
+%then define material 1 with the properties from before
+POGO_model.matTypes{1}.paramsType = 0;
+POGO_model.matTypes{1}.paramValues = [E, nu, rho];
+%[m3d] = genPogoHannSignal(m3d, nCyc, freq, whichSig, whichFrame );
+POGO_model.nDims = 3 ;
+POGO_model.elTypes = { struct('name','C3D6R', 'paramsType', 0) };
+POGO_model.elTypeRefs = ones(nEls,1);
+POGO_model.nDofPerNode = 3;
+POGO_model.measFreq = 2;
+POGO_model.measStart = 1;
+%-------------------------------------------------------------------------------------
+%  Input the other input parameters for the solutins ---------------------------------
+%-------------------------------------------------------------------------------------
+
+%-------------------------------------------------------------------------------------
+% Input the excitation
+%-------------------------------------------------------------------------------------
+POGO_model = recreate_mode_shape(POGO_model , nCyc , chosen_freq , SAFE_SOLUTION , MODE_NO , whichFrame ,whichSig);
+%-------------------------------------------------------------------------------------
+% Input the excitation
+%-------------------------------------------------------------------------------------
+
+%-------------------------------------------------------------------------------------
+% Specific  Post processing data sets 
+%-------------------------------------------------------------------------------------
+nEls = size(POGO_model.elNodes,2);
+rPoint1 = 1;
+rPoint2  = floor(size(POGO_model.nodePos,2)/3) ;
+rPoint3  = floor(size(POGO_model.nodePos,2)/2) ;
+rPoint4  = floor(2*size(POGO_model.nodePos,2)/3) ;
+rPoint5  = size(POGO_model.nodePos,2);
+
+% just get al thge nodes in the middle plane of nodes
+[~,mid_index] =   min(abs(POGO_model.nodePos(3,:)-max(POGO_model.nodePos(3,:))/2));
+mid_value = POGO_model.nodePos(3,mid_index);
+mid_node_vals =  find(POGO_model.nodePos(3,:) == mid_value);
+front_node_vals =  find(POGO_model.nodePos(3,:) == 0);
+end_node_vals =  find(POGO_model.nodePos(3,:) == max(POGO_model.nodePos(3,:)));
+measset_vals = [front_node_vals,mid_node_vals,end_node_vals];
+POGO_model.measSets{1}.name = 'main';
+POGO_model.measSets{1}.measNodes = sort([measset_vals,measset_vals,measset_vals]);  
+
+%POGO_model.measSets{1}.measNodes = [rPoint1, rPoint1, rPoint1, rPoint2, rPoint2, rPoint2];
+POGO_model.measSets{1}.measDof = repmat([1,2,3],[1,length(measset_vals)]);
+POGO_model.fieldStoreIncs = 1:25:100*floor (POGO_model.nt/100);  
+%-------------------------------------------------------------------------------------
+% Specific  Post processing data sets 
+%-------------------------------------------------------------------------------------
+
+%-------------------------------------------------------------------------------------
+% save the input files 
+%-------------------------------------------------------------------------------------
+savePogoInp('\\nas\Public\POGO\CW5\model.pogo-inp',POGO_model);
+save( '\\nas\Public\POGO\CW5\POGO_model',  'POGO_model')
+%-------------------------------------------------------------------------------------
+% save the input files 
+%-------------------------------------------------------------------------------------
+
+
+%savePogoInp('model.pogo-inp', POGO_model);
+end %function POGO_model =   setup_POGO_model(SAFE_SOLUTION,MODE_NO )
+%------------------------------------------------------------------------------------------------------------------------------------------------
+%------------------------------------------------------------------------------------------------------------------------------------------------
+
 function  POGO_mesh = convert_SAFE_POGO(SAFE_MESH , del_z , no_z , doplot )  
 
 %  SAFE_MESH 
@@ -27,20 +174,16 @@ POGO_mesh.nodePos =  nodePos;
 nodes_per_layer             = size(SAFE_NODES   ,1)     ; 
 element_nodes_per_layer     = size(SAFE_EL_NODES,1)     ;
 nodes_per_element           = size(SAFE_EL_NODES,2)*2   ;
-
 elements_nodes =  zeros(nodes_per_layer*(no_z - 1) , nodes_per_element);
-
 for index = 1: no_z-1
 elements_nodes( (index-1)*element_nodes_per_layer+1:index*element_nodes_per_layer, :)    = [SAFE_EL_NODES + ((index-1)*nodes_per_layer)    , SAFE_EL_NODES + (index*nodes_per_layer)];
 end %for index = 1: no_z-1
-
 POGO_mesh.elNodes = elements_nodes';
-
 SAFE_MESH = get_ordered_edge_nodes(SAFE_MESH,0); 
 % POGO_display_element_nodes
 %(1)  Face =  (safe nodes with a NAN on the end)
- PDEN_1 = [SAFE_MESH.el.nds,NaN(size(SAFE_MESH.el.nds,1),1)];
- %size = 394     4
+PDEN_1 = [SAFE_MESH.el.nds,NaN(size(SAFE_MESH.el.nds,1),1)];
+%size = 394     4
 %(2)  edge
 % PDEN_2
 display_el_no = 0;
@@ -54,7 +197,7 @@ PDEN_2(display_el_no,:) = [(SAFE_MESH.ordered_edge_nodes(index_2) +(length( SAFE
 else
 PDEN_2(display_el_no,:) = [(SAFE_MESH.ordered_edge_nodes(index_2) +(length( SAFE_MESH.nd.pos)*(index-1)  )), (SAFE_MESH.ordered_edge_nodes(1) +(length( SAFE_MESH.nd.pos)*(index-1))),...
 (SAFE_MESH.ordered_edge_nodes(1) +(length( SAFE_MESH.nd.pos)*(index))), (SAFE_MESH.ordered_edge_nodes(index_2)+(length( SAFE_MESH.nd.pos)*(index)))];
-   
+  
 end %if index_2 ~= length (SAFE_MESH.ordered_edge_nodes)
 end %for index_2 = 1 : length (SAFE_MESH.ordered_edge_nodes)
 end %for index = 1 : no_z-1
@@ -86,8 +229,6 @@ end
 
 
 end %function  POGO_mesh = convert_SAFE_POGO(SAFE_MESH , del_z , no_z ,doplot)  
-
-
 
 function mesh_ = get_ordered_edge_nodes(mesh_,do_plot) 
 
@@ -193,3 +334,16 @@ axis equal
 end % if do_plot ==1
 
 end %function ordered_edge_node = get_mesh_.ordered_edge_nodes(mesh_,do_plot) 
+
+function material_data  = get_material_data(material_index) 
+
+
+
+end
+
+
+
+
+
+
+
